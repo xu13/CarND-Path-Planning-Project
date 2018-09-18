@@ -34,9 +34,9 @@ int main() {
 
   // Load map
   std::string map_file_ = "../data/highway_map.csv";
-  Map* map = new Map(map_file_);
-  Car car;
-  Planner planner(map, 1);
+  Map map(map_file_);
+  Car car(1);
+  Planner planner(&map, &car);
 
   h.onMessage([&map, &car, &planner](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
@@ -97,7 +97,7 @@ int main() {
               double s = fusion_data[5];
               double d = fusion_data[6];
 
-              std::vector<double> vsvd = map->getVelocityFrenet(vx, vy, s);
+              std::vector<double> vsvd = map.getVelocityFrenet(vx, vy, s);
               Object obj(id, x, y, vx, vy, s, d, vsvd[0], vsvd[1]);
               objects.insert({id, obj});
             }
@@ -106,7 +106,7 @@ int main() {
             size_t prev_size = previous_path_x.size();
 
             // Generate plan
-            planner.plan(car, objects, prev_size, &next_x_vals, &next_y_vals);
+            planner.plan(objects, prev_size, &next_x_vals, &next_y_vals);
 
 						// END TODO
 

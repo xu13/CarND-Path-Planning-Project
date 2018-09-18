@@ -182,6 +182,11 @@ int Map::getLaneId(const double d) const
   return static_cast<int>(d / LANE_WIDTH);
 }
 
+bool Map::inLane(const double d, const int id) const
+{
+  return std::abs(getCenterD(id) - d) <= (LANE_WIDTH / 4);
+}
+
 std::vector<double> Map::getXY(const double s, double d) const
 {
   double s1 = std::fmod(s, MAX_S);

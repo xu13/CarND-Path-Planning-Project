@@ -13,11 +13,11 @@ enum LaneChangeDir {
 
 class Planner {
 public:
-  Planner(Map* m, int id);
+  Planner(Map* map, Car* car);
 
   ~Planner() {}
 
-  void plan(Car& car, const std::unordered_map<int, Object>& objects, const size_t prev_size,
+  void plan(const std::unordered_map<int, Object>& objects, const size_t prev_size,
             std::vector<double>* next_x_vals, std::vector<double>* next_y_vals);
 
 private:
@@ -42,19 +42,19 @@ private:
 
   void computeFollowingTrajectory(const std::vector<double>& s_start,
                                   const std::vector<double>& d_start,
-                                  const Object& front_car, double min_ds,
+                                  const Object& front_car,
                                   size_t num_waypoints_to_be_added,
                                   Trajectory* trajectory) const;
 
   void computeChangingLaneTrajectory(const std::vector<double>& s_start,
                                      const std::vector<double>& d_start,
-                                     LaneChangeDir dir,
                                      size_t num_waypoints_to_be_added,
                                      Trajectory* trajectory) const;
 
 private:
   Map* map_;
-  int lane_id_;
+  Car* car_;
+//  int lane_id_;
   const unsigned int N = 50;
   const double DT = 0.02;
   const double SPEED_LIMIT = 20.0;

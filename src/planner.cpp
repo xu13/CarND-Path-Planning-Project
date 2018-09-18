@@ -1,42 +1,38 @@
 #include "planner.h"
 
-Planner::Planner(Map* m, int id)
+Planner::Planner(Map* map, Car* car)
 {
-  map_ = m;
-  lane_id_ = id;
+  map_ = map;
+  car_ = car;
 }
 
-void Planner::plan(Car& car, const std::unordered_map<int, Object>& objects, const size_t leftover_size,
+void Planner::plan(const std::unordered_map<int, Object>& objects, const size_t leftover_size,
                    std::vector<double>* next_x_vals, std::vector<double>* next_y_vals)
 {
-  std::cout << "Current car state: " << car << std::endl;
+  std::cout << "Current car state: " << *car_ << std::endl;
 
   Trajectory trajectory;
 
   // Find the start waypoint for the next plan
-  double start_s = car.getS();
-  double start_s_dot = 0.0;
-  double start_s_dot_dot = 0.0;
-  double start_d = car.getD();
-  double start_d_dot = 0.0;
-  double start_d_dot_dot = 0.0;
+  std::vector<double> s_start = {car_->getS(), 0.0, 0.0};
+  std::vector<double> d_start = {car_->getD(), 0.0, 0.0};
 
   // If we already have previous plan, use the last point of that plan as a starting point for the new plan
   size_t num_waypoints_to_be_added = N;
   if (leftover_size > 0) {
     size_t num_waypoints_consumed = N - leftover_size;
 
-    const Waypoint& wp = car.getPreviousTrajectory().getWaypoint(LOOKAHEAD_SIZE + num_waypoints_consumed);
-    start_s = wp.getS();
-    start_s_dot = wp.getSdot();
-    start_s_dot_dot = wp.getSdotdot();
-    start_d = wp.getD();
-    start_d_dot = wp.getDdot();
-    start_d_dot_dot = wp.getDdotdot();
+    const Waypoint& wp = car_->getPreviousTrajectory().getWaypoint(LOOKAHEAD_SIZE + num_waypoints_consumed);
+    s_start[0] = wp.getS();
+    s_start[1] = wp.getSdot();
+    s_start[2] = wp.getSdotdot();
+    d_start[0] = wp.getD();
+    d_start[1] = wp.getDdot();
+    d_start[2] = wp.getDdotdot();
 
     // Add the lookahead waypoints from the previous plan to the new plan
     for (size_t i = num_waypoints_consumed; i < num_waypoints_consumed + LOOKAHEAD_SIZE; i++) {
-      const Waypoint& wp = car.getPreviousTrajectory().getWaypoint(i);
+      const Waypoint& wp = car_->getPreviousTrajectory().getWaypoint(i);
       trajectory.addWaypoint(wp);
     }
     num_waypoints_to_be_added = N - LOOKAHEAD_SIZE;
@@ -49,16 +45,17 @@ void Planner::plan(Car& car, const std::unordered_map<int, Object>& objects, con
   std::pair<int, double> rear_left_car = std::make_pair(-1, -std::numeric_limits<double>::infinity());
   std::pair<int, double> rear_right_car = std::make_pair(-1, -std::numeric_limits<double>::infinity());
 
-  const int car_lane_id = map_->getLaneId(start_d);
+  const int car_lane_id = map_->getLaneId(d_start[0]);
   for (auto& p : objects) {
     const int id = p.first;
     const Object& obj = p.second;
 
     // Lane id of the object
     const int obj_lane_id = map_->getLaneId(obj.getD());
-    // This is the s position of the object when the ego-car finishes last plan (projection ahead)
-    double obj_s = std::fmod(obj.getS() + LOOKAHEAD_SIZE * obj.getSdot() * DT, map_->getMaxS());
-    double ds = obj_s - start_s;
+    // This is the s position of the object after lookahead time (projection ahead)
+    double obj_s = map_->getValidS(obj.getS() + LOOKAHEAD_SIZE * obj.getSdot() * DT);
+    double ds = obj_s - s_start[0];
+    // Corrections for beginning/ending of the loop
     if (ds > map_->getMaxS() / 2.0) {
       ds -= map_->getMaxS();
     } else if (ds < -map_->getMaxS() / 2.0) {
@@ -96,66 +93,65 @@ void Planner::plan(Car& car, const std::unordered_map<int, Object>& objects, con
   }
 
   // Starting points
-  std::vector<double> s_start = {start_s, start_s_dot, start_s_dot_dot};
-  std::cout << "start: s=" << start_s << ", s_dot=" << start_s_dot << ", s_dot_dot=" << start_s_dot_dot << std::endl;
-  std::vector<double> d_start = {start_d, start_d_dot, start_d_dot_dot};
-  std::cout << "start: d=" << start_d << ", d_dot=" << start_d_dot << ", d_dot_dot=" << start_d_dot_dot << std::endl;
+  std::cout << "start: s=" << s_start[0] << ", s_dot=" << s_start[1] << ", s_dot_dot=" << s_start[2] << "\n"
+            << "       d=" << d_start[0] << ", d_dot=" << d_start[1] << ", d_dot_dot=" << d_start[2] << std::endl;
 
-  // Compute trajectory
-  switch (car.getState()) {
+  // Compute trajectory and state machine
+  switch (car_->getState()) {
     case State::VELOCITY_KEEPING: {
-        computeVelocityKeepingTrajectory(s_start, d_start,
-                                         num_waypoints_to_be_added, &trajectory);
+        computeVelocityKeepingTrajectory(s_start, d_start, num_waypoints_to_be_added, &trajectory);
+
         const double FRONT_SAFETY_DISTANCE = 30.0;
         if (front_car.second < FRONT_SAFETY_DISTANCE) {
-          car.setState(State::FOLLOWING);
+          car_->setState(State::FOLLOWING);
         }
         break;
       }
     case State::FOLLOWING: {
         computeFollowingTrajectory(s_start, d_start,
-                                   objects.at(front_car.first), front_car.second,
+                                   objects.at(front_car.first),
                                    num_waypoints_to_be_added, &trajectory);
+
         const double FRONT_SAFETY_DISTANCE = 40.0;
         const double REAR_SAFETY_DISTANCE = -10.0;
         if (front_left_car.second > FRONT_SAFETY_DISTANCE &&
             rear_left_car.second < REAR_SAFETY_DISTANCE &&
             front_right_car.second > FRONT_SAFETY_DISTANCE &&
             rear_right_car.second < REAR_SAFETY_DISTANCE &&
-            lane_id_ == 1) {
+            car_->getTargetLaneId() == 1) {
           if (front_left_car.second >= front_right_car.second) {
-            car.setState(State::CHANGE_LANE_LEFT);
+            car_->setTargetLaneId(car_->getTargetLaneId() + LaneChangeDir::LEFT);
+            car_->setState(State::CHANGE_LANE_LEFT);
           } else {
-            car.setState(State::CHANGE_LANE_RIGHT);
+            car_->setTargetLaneId(car_->getTargetLaneId() + LaneChangeDir::RIGHT);
+            car_->setState(State::CHANGE_LANE_RIGHT);
           }
         } else if (front_left_car.second > FRONT_SAFETY_DISTANCE &&
                    rear_left_car.second < REAR_SAFETY_DISTANCE &&
-                   lane_id_ != 0) {
-          car.setState(State::CHANGE_LANE_LEFT);
+                   car_->getTargetLaneId() != 0) {
+          car_->setTargetLaneId(car_->getTargetLaneId() + LaneChangeDir::LEFT);
+          car_->setState(State::CHANGE_LANE_LEFT);
         } else if (front_right_car.second > FRONT_SAFETY_DISTANCE  &&
                    rear_right_car.second < REAR_SAFETY_DISTANCE  &&
-                   lane_id_ != 2) {
-          car.setState(State::CHANGE_LANE_RIGHT);
+                   car_->getTargetLaneId() != 2) {
+          car_->setTargetLaneId(car_->getTargetLaneId() + LaneChangeDir::RIGHT);
+          car_->setState(State::CHANGE_LANE_RIGHT);
         }
         break;
       }
     case State::CHANGE_LANE_LEFT: {
-        computeChangingLaneTrajectory(s_start, d_start,
-                                      LaneChangeDir::LEFT, num_waypoints_to_be_added, &trajectory);
-        double dd = map_->getCenterD(lane_id_ + LaneChangeDir::LEFT) - start_d;
-        if (std::abs(dd) < 0.8) {
-          lane_id_ += LaneChangeDir::LEFT;
-          car.setState(State::VELOCITY_KEEPING);
+        computeChangingLaneTrajectory(s_start, d_start, num_waypoints_to_be_added, &trajectory);
+
+        if (map_->inLane(d_start[0], car_->getTargetLaneId())) {
+          car_->setState(State::VELOCITY_KEEPING);
         }
         break;
       }
     case State::CHANGE_LANE_RIGHT: {
-        computeChangingLaneTrajectory(s_start, d_start,
-                                      LaneChangeDir::RIGHT, num_waypoints_to_be_added, &trajectory);
-        double dd = map_->getCenterD(lane_id_ + LaneChangeDir::RIGHT) - start_d;
-        if (std::abs(dd) < 0.8) {
-          lane_id_ += LaneChangeDir::RIGHT;
-          car.setState(State::VELOCITY_KEEPING);
+        computeChangingLaneTrajectory(s_start, d_start, num_waypoints_to_be_added, &trajectory);
+
+        if (map_->inLane(d_start[0], car_->getTargetLaneId())) {
+          car_->setState(State::VELOCITY_KEEPING);
         }
         break;
       }
@@ -164,7 +160,7 @@ void Planner::plan(Car& car, const std::unordered_map<int, Object>& objects, con
   }
 
   // Save the trajectory for next cycle use
-  car.setPreviousTrajectory(trajectory);
+  car_->setPreviousTrajectory(trajectory);
 
   for (const Waypoint& wp : trajectory.getWaypoints()) {
     next_x_vals->push_back(wp.getX());
@@ -173,8 +169,8 @@ void Planner::plan(Car& car, const std::unordered_map<int, Object>& objects, con
 
   std::cout << "Previous plan remaining size: " << leftover_size << std::endl;
   std::cout << "New plan size: " << num_waypoints_to_be_added << std::endl;
-  std::cout << "Current state: " << state_str[car.getState()] << std::endl;
-  std::cout << "Current lane id: " << map_->getLaneId(start_d) << std::endl;
+  std::cout << "Current state: " << state_str[car_->getState()] << std::endl;
+  std::cout << "Current lane id: " << map_->getLaneId(d_start[0]) << std::endl;
   std::cout << "Current plan last waypoint: " << trajectory.getLastWaypoint() << std::endl;
   std::cout << "----------" << std::endl;
 
@@ -191,17 +187,17 @@ void Planner::computeVelocityKeepingTrajectory(const std::vector<double>& s_star
   }
   const double T = 3;
   std::vector<double> s_end = {-1, ref_v, 0.0};
-  std::cout << "end: s=" << s_end[0] << ", s_dot=" << s_end[1] << ", s_dot_dot=" << s_end[2] << std::endl;
   std::vector<double> s_coeff = quarticPolynomialSolver(s_start, s_end, T);
 
-  std::vector<double> d_end = {map_->getCenterD(lane_id_), 0.0, 0.0};
-  std::cout << "end: d=" << d_end[0] << ", d_dot=" << d_end[1] << ", d_dot_dot=" << d_end[2] << std::endl;
+  std::vector<double> d_end = {map_->getCenterD(car_->getTargetLaneId()), 0.0, 0.0};
   std::vector<double> d_coeff = quinticPolynomialSolver(d_start, d_end, T);
-  std::cout << "T: " << T << std::endl;
+
+  std::cout << "end: s=" << s_end[0] << ", s_dot=" << s_end[1] << ", s_dot_dot=" << s_end[2] << "\n"
+            << "     d=" << d_end[0] << ", d_dot=" << d_end[1] << ", d_dot_dot=" << d_end[2] << std::endl;
+  std::cout << "T=" << T << std::endl;
 
   for (size_t i = 0; i < num_waypoints_to_be_added; i++) {
-    double s = getDistanceQuartic(s_coeff, i * DT);
-    s = std::fmod(s, map_->getMaxS());
+    double s = map_->getValidS(getDistanceQuartic(s_coeff, i * DT));
     double s_dot = getVelocityQuartic(s_coeff, i * DT);
     double s_dot_dot = getAccelerationQuartic(s_coeff, i * DT);
     double d = getDistanceQuartic(d_coeff, i * DT);
@@ -218,29 +214,27 @@ void Planner::computeVelocityKeepingTrajectory(const std::vector<double>& s_star
 
 void Planner::computeFollowingTrajectory(const std::vector<double>& s_start,
                                          const std::vector<double>& d_start,
-                                         const Object& front_car, double min_ds,
+                                         const Object& front_car,
                                          size_t num_waypoints_to_be_added,
                                          Trajectory* trajectory) const
 {
   std::cout << "Front car: " << front_car << std::endl;
-//  double end_s = s_start[0] + min_ds;
-  double end_s_dot = front_car.getSdot();
-//  const double T = 30.0 / SPEED_LIMIT;
   const double T = 3;
-  double end_s = s_start[0] + min_ds + front_car.getSdot() * T - (10 + 2 * front_car.getSdot());
+  double end_s = front_car.getS() + front_car.getSdot() * T - (0 + 1.5 * front_car.getSdot());
+  double end_s_dot = front_car.getSdot();
 
   std::vector<double> s_end = {end_s, end_s_dot, 0.0};
-  std::cout << "end: s=" << s_end[0] << ", s_dot=" << s_end[1] << ", s_dot_dot=" << s_end[2] << std::endl;
   std::vector<double> s_coeff = quinticPolynomialSolver(s_start, s_end, T);
 
-  std::vector<double> d_end = {map_->getCenterD(lane_id_), 0.0, 0.0};
-  std::cout << "end: d=" << d_end[0] << ", d_dot=" << d_end[1] << ", d_dot_dot=" << d_end[2] << std::endl;
+  std::vector<double> d_end = {map_->getCenterD(car_->getTargetLaneId()), 0.0, 0.0};
   std::vector<double> d_coeff = quinticPolynomialSolver(d_start, d_end, T);
-  std::cout << "T: " << T << std::endl;
+
+  std::cout << "end: s=" << s_end[0] << ", s_dot=" << s_end[1] << ", s_dot_dot=" << s_end[2] << "\n"
+            << "     d=" << d_end[0] << ", d_dot=" << d_end[1] << ", d_dot_dot=" << d_end[2] << std::endl;
+  std::cout << "T=" << T << std::endl;
 
   for (size_t i = 0; i < num_waypoints_to_be_added; i++) {
-    double s = getDistanceQuintic(s_coeff, i * DT);
-    s = std::fmod(s, map_->getMaxS());
+    double s = map_->getValidS(getDistanceQuintic(s_coeff, i * DT));
     double s_dot = getVelocityQuintic(s_coeff, i * DT);
     double s_dot_dot = getAccelerationQuintic(s_coeff, i * DT);
     double d = getDistanceQuartic(d_coeff, i * DT);
@@ -257,7 +251,6 @@ void Planner::computeFollowingTrajectory(const std::vector<double>& s_start,
 
 void Planner::computeChangingLaneTrajectory(const std::vector<double>& s_start,
                                             const std::vector<double>& d_start,
-                                            LaneChangeDir dir,
                                             size_t num_waypoints_to_be_added,
                                             Trajectory* trajectory) const
 {
@@ -269,18 +262,17 @@ void Planner::computeChangingLaneTrajectory(const std::vector<double>& s_start,
   const double T = 3;
 
   std::vector<double> s_end = {-1, ref_v, 0};
-  std::cout << "end: s=" << s_end[0] << ", s_dot=" << s_end[1] << ", s_dot_dot=" << s_end[2] << std::endl;
   std::vector<double> s_coeff = quarticPolynomialSolver(s_start, s_end, T);
 
-  int target_lane_id = lane_id_ + dir;
-  std::vector<double> d_end = {map_->getCenterD(target_lane_id), 0, 0};
-  std::cout << "end: d=" << d_end[0] << ", d_dot=" << d_end[1] << ", d_dot_dot=" << d_end[2] << std::endl;
+  std::vector<double> d_end = {map_->getCenterD(car_->getTargetLaneId()), 0, 0};
   std::vector<double> d_coeff = quinticPolynomialSolver(d_start, d_end, T);
-  std::cout << "T: " << T << std::endl;
+
+  std::cout << "end: s=" << s_end[0] << ", s_dot=" << s_end[1] << ", s_dot_dot=" << s_end[2] << "\n"
+            << "     d=" << d_end[0] << ", d_dot=" << d_end[1] << ", d_dot_dot=" << d_end[2] << std::endl;
+  std::cout << "T=" << T << std::endl;
 
   for (size_t i = 0; i < num_waypoints_to_be_added; i++) {
-    double s = getDistanceQuartic(s_coeff, i * DT);
-    s = std::fmod(s, map_->getMaxS());
+    double s = map_->getValidS(getDistanceQuartic(s_coeff, i * DT));
     double s_dot = getVelocityQuartic(s_coeff, i * DT);
     double s_dot_dot = getAccelerationQuartic(s_coeff, i * DT);
     double d = getDistanceQuintic(d_coeff, i * DT);

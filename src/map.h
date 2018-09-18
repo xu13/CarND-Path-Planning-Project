@@ -8,21 +8,26 @@ public:
 
   ~Map() {}
 
-//  int ClosestWaypoint(double x, double y) const;
-
-//  int NextWaypoint(double x, double y, double theta) const;
-
-//  // Transform from Cartesian x,y coordinates to Frenet s,d coordinates
-//  std::vector<double> getFrenet(double x, double y, double theta) const;
-
-//  // Transform from Frenet s,d coordinates to Cartesian x,y
-//  std::vector<double> getXY(double s, double d) const;
-
   double getCenterD(const int lane_id) const;
 
   int getLaneId(const double d) const;
 
+  /**
+   * @brief Check if given d position is in given lane id.
+   * @param d
+   * @param lane id
+   * @return
+   */
+  bool inLane(const double d, const int id) const;
+
   std::vector<double> getXY(const double s, double d) const;
+
+  /**
+   * @brief Compute the valid s position by wrapping over.
+   * @param s
+   * @return valid s
+   */
+  double getValidS(const double s) const { return std::fmod(s, MAX_S); }
 
   double getMaxS() const { return MAX_S; }
 

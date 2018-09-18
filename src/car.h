@@ -18,7 +18,10 @@ const std::string state_str[State::NUM_OF_STATES] = {"VELOCITY KEEPING",
 
 class Car {
 public:
-  Car() = default;
+  Car(const int lane_id)
+  {
+    target_lane_id_ = 1;
+  }
 
   double getX() const { return x_; }
   double getY() const { return y_; }
@@ -27,14 +30,11 @@ public:
   double getYaw() const { return yaw_; }
   double getSpeed() const { return speed_; }
 
+  int getTargetLaneId() const { return target_lane_id_; }
+  void setTargetLaneId(const int lane_id) { target_lane_id_ = lane_id; }
+
   State getState() const { return state_; }
   void setState(State state) { state_ = state; }
-
-//  std::vector<double> getPreviousPathX() const { return previous_path_x_; }
-//  std::vector<double> getPreviousPathY() const { return previous_path_y_; }
-//  size_t getPreviousPathSize() const { return previous_path_x_.size(); }
-//  double getPreviousPathEndS() const { return end_path_s_; }
-//  double getPreviousPathEndD() const { return end_path_d_; }
 
   Trajectory getPreviousTrajectory() const { return previous_trajectory_; }
   size_t getPreviousTrajectorySize() const { return previous_trajectory_.size(); }
@@ -72,6 +72,8 @@ private:
   Trajectory previous_trajectory_;
 
   State state_ = State::VELOCITY_KEEPING;
+
+  int target_lane_id_;
 
 //  // Previous path data given to the Planner
 //  std::vector<double> previous_path_x_;
