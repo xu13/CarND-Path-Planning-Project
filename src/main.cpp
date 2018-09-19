@@ -35,7 +35,7 @@ int main() {
   // Load map
   std::string map_file_ = "../data/highway_map.csv";
   Map map(map_file_);
-  Car car(1);
+  Car car(0);
   Planner planner(&map, &car);
 
   h.onMessage([&map, &car, &planner](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,

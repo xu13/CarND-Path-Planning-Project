@@ -6,19 +6,31 @@
 #include "object.h"
 #include "trajectory.h"
 
+/**
+ * @brief The Lane Change Direction enum.
+ */
 enum LaneChangeDir {
   LEFT = -1,
   RIGHT = 1
 };
 
+/**
+ * @brief The Planner class.
+ */
 class Planner {
 public:
   Planner(Map* map, Car* car);
-
   ~Planner() {}
 
-  void plan(const std::unordered_map<int, Object>& objects, const size_t prev_size,
-            std::vector<double>* next_x_vals, std::vector<double>* next_y_vals);
+  /**
+   * @brief Plane the trajectory.
+   * @param objects Surrounding vehicle information.
+   * @param leftover_size Remaining waypoints (non-executed) from previous planning cycle, returned from the simulator.
+   * @param next_x_vals
+   * @param next_y_vals
+   */
+  void plan(const std::unordered_map<int, Object>& objects, const size_t leftover_size,
+            std::vector<double>* next_x_vals, std::vector<double>* next_y_vals) const;
 
 private:
   std::vector<double> quinticPolynomialSolver(const std::vector<double>& start,
@@ -54,10 +66,8 @@ private:
 private:
   Map* map_;
   Car* car_;
-//  int lane_id_;
-  const unsigned int N = 50;
-  const double DT = 0.02;
-  const double SPEED_LIMIT = 20.0;
-  const double REF_SPEED = 20.0;
-  const unsigned int LOOKAHEAD_SIZE = 5;
+  const unsigned int N = 50; // number of waypoints in each trajectory
+  const double DT = 0.02; // time interval between waypoints
+  const double SPEED_LIMIT = 20.0; // speed limit of the highway
+  const unsigned int LOOKAHEAD_SIZE = 5; // number of waypoints to keep for next replanning cycle
 };

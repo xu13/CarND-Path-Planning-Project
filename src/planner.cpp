@@ -7,21 +7,22 @@ Planner::Planner(Map* map, Car* car)
 }
 
 void Planner::plan(const std::unordered_map<int, Object>& objects, const size_t leftover_size,
-                   std::vector<double>* next_x_vals, std::vector<double>* next_y_vals)
+                   std::vector<double>* next_x_vals, std::vector<double>* next_y_vals) const
 {
   std::cout << "Current car state: " << *car_ << std::endl;
 
   Trajectory trajectory;
 
-  // Find the start waypoint for the next plan
+  // Start waypoint for the next plan
   std::vector<double> s_start = {car_->getS(), 0.0, 0.0};
   std::vector<double> d_start = {car_->getD(), 0.0, 0.0};
 
   // If we already have previous plan, use the last point of that plan as a starting point for the new plan
   size_t num_waypoints_to_be_added = N;
   if (leftover_size > 0) {
-    size_t num_waypoints_consumed = N - leftover_size;
+    const size_t num_waypoints_consumed = N - leftover_size;
 
+    // Start from this waypoint from previous trajectory
     const Waypoint& wp = car_->getPreviousTrajectory().getWaypoint(LOOKAHEAD_SIZE + num_waypoints_consumed);
     s_start[0] = wp.getS();
     s_start[1] = wp.getSdot();
@@ -38,7 +39,7 @@ void Planner::plan(const std::unordered_map<int, Object>& objects, const size_t 
     num_waypoints_to_be_added = N - LOOKAHEAD_SIZE;
   }
 
-  // Loop through all objects (other cars)
+  // Loop through all objects (other cars) to find surrounding traffic
   std::pair<int, double> front_car = std::make_pair(-1, std::numeric_limits<double>::infinity());
   std::pair<int, double> front_left_car = std::make_pair(-1, std::numeric_limits<double>::infinity());
   std::pair<int, double> front_right_car = std::make_pair(-1, std::numeric_limits<double>::infinity());
@@ -92,11 +93,11 @@ void Planner::plan(const std::unordered_map<int, Object>& objects, const size_t 
     }
   }
 
-  // Starting points
+  // Print starting points
   std::cout << "start: s=" << s_start[0] << ", s_dot=" << s_start[1] << ", s_dot_dot=" << s_start[2] << "\n"
             << "       d=" << d_start[0] << ", d_dot=" << d_start[1] << ", d_dot_dot=" << d_start[2] << std::endl;
 
-  // Compute trajectory and state machine
+  // State machine
   switch (car_->getState()) {
     case State::VELOCITY_KEEPING: {
         computeVelocityKeepingTrajectory(s_start, d_start, num_waypoints_to_be_added, &trajectory);
@@ -114,11 +115,11 @@ void Planner::plan(const std::unordered_map<int, Object>& objects, const size_t 
 
         const double FRONT_SAFETY_DISTANCE = 40.0;
         const double REAR_SAFETY_DISTANCE = -10.0;
-        if (front_left_car.second > FRONT_SAFETY_DISTANCE &&
+        if (map_->isMiddleLane(car_->getTargetLaneId()) &&
+            front_left_car.second > FRONT_SAFETY_DISTANCE &&
             rear_left_car.second < REAR_SAFETY_DISTANCE &&
             front_right_car.second > FRONT_SAFETY_DISTANCE &&
-            rear_right_car.second < REAR_SAFETY_DISTANCE &&
-            car_->getTargetLaneId() == 1) {
+            rear_right_car.second < REAR_SAFETY_DISTANCE) {
           if (front_left_car.second >= front_right_car.second) {
             car_->setTargetLaneId(car_->getTargetLaneId() + LaneChangeDir::LEFT);
             car_->setState(State::CHANGE_LANE_LEFT);
@@ -126,14 +127,14 @@ void Planner::plan(const std::unordered_map<int, Object>& objects, const size_t 
             car_->setTargetLaneId(car_->getTargetLaneId() + LaneChangeDir::RIGHT);
             car_->setState(State::CHANGE_LANE_RIGHT);
           }
-        } else if (front_left_car.second > FRONT_SAFETY_DISTANCE &&
-                   rear_left_car.second < REAR_SAFETY_DISTANCE &&
-                   car_->getTargetLaneId() != 0) {
+        } else if (!map_->isLeftLane(car_->getTargetLaneId()) &&
+                   front_left_car.second > FRONT_SAFETY_DISTANCE &&
+                   rear_left_car.second < REAR_SAFETY_DISTANCE) {
           car_->setTargetLaneId(car_->getTargetLaneId() + LaneChangeDir::LEFT);
           car_->setState(State::CHANGE_LANE_LEFT);
-        } else if (front_right_car.second > FRONT_SAFETY_DISTANCE  &&
-                   rear_right_car.second < REAR_SAFETY_DISTANCE  &&
-                   car_->getTargetLaneId() != 2) {
+        } else if (!map_->isRightLane(car_->getTargetLaneId()) &&
+                   front_right_car.second > FRONT_SAFETY_DISTANCE &&
+                   rear_right_car.second < REAR_SAFETY_DISTANCE) {
           car_->setTargetLaneId(car_->getTargetLaneId() + LaneChangeDir::RIGHT);
           car_->setState(State::CHANGE_LANE_RIGHT);
         }
@@ -142,7 +143,7 @@ void Planner::plan(const std::unordered_map<int, Object>& objects, const size_t 
     case State::CHANGE_LANE_LEFT: {
         computeChangingLaneTrajectory(s_start, d_start, num_waypoints_to_be_added, &trajectory);
 
-        if (map_->inLane(d_start[0], car_->getTargetLaneId())) {
+        if (map_->isInLane(d_start[0], car_->getTargetLaneId())) {
           car_->setState(State::VELOCITY_KEEPING);
         }
         break;
@@ -150,7 +151,7 @@ void Planner::plan(const std::unordered_map<int, Object>& objects, const size_t 
     case State::CHANGE_LANE_RIGHT: {
         computeChangingLaneTrajectory(s_start, d_start, num_waypoints_to_be_added, &trajectory);
 
-        if (map_->inLane(d_start[0], car_->getTargetLaneId())) {
+        if (map_->isInLane(d_start[0], car_->getTargetLaneId())) {
           car_->setState(State::VELOCITY_KEEPING);
         }
         break;
@@ -162,16 +163,18 @@ void Planner::plan(const std::unordered_map<int, Object>& objects, const size_t 
   // Save the trajectory for next cycle use
   car_->setPreviousTrajectory(trajectory);
 
+  // Fill out the output variables
   for (const Waypoint& wp : trajectory.getWaypoints()) {
     next_x_vals->push_back(wp.getX());
     next_y_vals->push_back(wp.getY());
   }
 
-  std::cout << "Previous plan remaining size: " << leftover_size << std::endl;
-  std::cout << "New plan size: " << num_waypoints_to_be_added << std::endl;
-  std::cout << "Current state: " << state_str[car_->getState()] << std::endl;
+  // Print debugging info
+//  std::cout << "Previous plan remaining size: " << leftover_size << std::endl;
+//  std::cout << "Next plan size: " << num_waypoints_to_be_added << std::endl;
+  std::cout << "Next state: " << state_str[car_->getState()] << std::endl;
   std::cout << "Current lane id: " << map_->getLaneId(d_start[0]) << std::endl;
-  std::cout << "Current plan last waypoint: " << trajectory.getLastWaypoint() << std::endl;
+  std::cout << "Target lane id: " << car_->getTargetLaneId() << std::endl;
   std::cout << "----------" << std::endl;
 
 }
@@ -254,10 +257,7 @@ void Planner::computeChangingLaneTrajectory(const std::vector<double>& s_start,
                                             size_t num_waypoints_to_be_added,
                                             Trajectory* trajectory) const
 {
-//  double ref_v = SPEED_LIMIT;
-//  if (s_start[1] < SPEED_LIMIT) {
-//    ref_v = s_start[1] + 6.0;
-//  }
+  // For simplicity, we change lane with constant speed
   double ref_v = s_start[1];
   const double T = 3;
 
@@ -345,13 +345,10 @@ std::vector<double> Planner::quarticPolynomialSolver(const std::vector<double> &
   double si = start[0];
   double si_dot = start[1];
   double si_double_dot = start[2];
-  //  double sf = end[0];
   double sf_dot = end[1];
   double sf_double_dot = end[2];
   double T2 = T * T;
   double T3 = T * T2;
-  //  double T4 = T * T3;
-  //  double T5 = T * T4;
   Eigen::MatrixXd lhs(2, 2);
   lhs << 3 * T2, 4 * T3,
       6 * T, 12 * T2;

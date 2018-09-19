@@ -2,6 +2,9 @@
 
 #include "helper.h"
 
+/**
+ * @brief The Waypoint class.
+ */
 class Waypoint {
 public:
   Waypoint() = default;
@@ -45,9 +48,11 @@ private:
   double d_dot_dot_;
   double x_;
   double y_;
-
 };
 
+/**
+ * @brief The Trajectory class.
+ */
 class Trajectory {
 public:
   Trajectory() = default;

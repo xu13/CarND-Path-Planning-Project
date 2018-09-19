@@ -2,10 +2,16 @@
 
 #include "helper.h"
 
+/**
+ * @brief The Object class.
+ */
 class Object {
 public:
-  Object(const int id, const double x, const double y, const double vx, const double vy,
-         const double s, const double d, const double vs, const double vd)
+  Object(const int id,
+         const double x, const double y,
+         const double vx, const double vy,
+         const double s, const double d,
+         const double vs, const double vd)
     : id_(id), x_(x), y_(y), vx_(vx), vy_(vy), s_(s), d_(d), vs_(vs), vd_(vd)
   {}
 
