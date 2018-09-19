@@ -65,6 +65,72 @@ the path has processed since last time.
 A really helpful resource for doing this project and creating smooth trajectories was using http://kluge.in-chemnitz.de/opensource/spline/, the spline function is in a single hearder file is really easy to use.
 
 ---
+## Model Documentation
+
+### Map Class
+The given csv file contains only 181 points, the highway map is defined by connecting the points with line segments. Thus the highway map is very coarse which will cause sudden orientation change at those points. Therefore, to get a better map with higher precision, I decided to use the `spline` library provided in the 'Tip' section to connect those points. Four splines are constructed in the [constructor of Map class](https://github.com/xu13/CarND-Path-Planning-Project/blob/d6458b1046bf0d47be8f0ad95234f1d682d44769/src/map.cpp#L3). To get the x/y coordinates from the Frenet coordinates, I can simply do
+
+```c++
+std::vector<double> Map::getXY(const double s, double d) const
+{
+  double s1 = std::fmod(s, MAX_S);
+  double x = s_x_(s1);
+  double y = s_y_(s1);
+  double dx = s_dx_(s1);
+  double dy = s_dy_(s1);
+  return {x + d * dx, y + d * dy};
+}
+```
+
+To compare with the original map, I created a `map_test` executable to write the high precision map into a csv file with interval `s=1`. I also created a Matlab script to visualize both map. The result is shown in
+
+![alt text](map.png)
+
+A closer look at the top right (a sharp left turn) can show the improvement. The blue crosses are the points in the original csv file, the blue dashed line is the original map using line segments, whereas the red solid line is what I have.
+
+![alt text](map_detail.png)
+
+**Note: now I have a better map to use, however I believe the incident checking in the simulator uses the coarse map for determining if the vehicle is outside the lane bound. As a result, there could be occasional out of right lane bound incidents happening, which I believe is a false alarm.**
+
+### Car Class
+
+Car class is created for storing the car information and the state information. I explicitly save the previous trajectory to be used for the next planning cycle. This is because the "previous_path_x" and "previous_path_y" returned by the simulator doesn't contain Frenet coordinates, and we don't want to convert back from cartesian coordinates. We can do this because a perfect controller is used to follow the trajectory.
+
+### Object Class
+
+Object class is used to store the surrounding vehicles' information provided by the simulator.
+
+### Trajectory Class
+
+A trajectory contains multiple (in my case N=50) waypoints. The waypoint class is created to save the waypoint information. The trajectory class is simply a wrapper of `std::vector<Waypoint>`.
+
+### Planner Class
+
+The planner class is the core of this project. The constructor takes in the pointers to the map and the ego vehicle: `Planner(Map* map, Car* car)`. The public function [plan](https://github.com/xu13/CarND-Path-Planning-Project/blob/d6458b1046bf0d47be8f0ad95234f1d682d44769/src/planner.cpp#L9) defined as
+
+```c++
+void plan(const std::unordered_map<int, Object>& objects, const size_t leftover_size, std::vector<double>* next_x_vals, std::vector<double>* next_y_vals) const;
+```
+
+takes the objects (surrounding vehicles) information `objects`, number of leftover waypoints from previous plan cycle `leftover_size`, and generates a trajectory and assigning the cartesian coordinates of the waypoints to `next_x_vals` and `next_y_vals`.
+
+For trajectory generation, I use the jerk minimization method provided in class and the reference paper by Werling et al. I provide trajectory generation for three cases, namely for velocity keeping, car following, and lane changing. I use quintic and quartic polynomial solver to solve for corresponding polynomial coefficients. Private functions are provided to retrieve waypoints from the solved polynomials.
+
+To determine which behavior to generate trajectory for at the next planning cycle, I use a simple state machine containing four behaviors defined in `car.h`
+
+```c++
+enum State {
+  VELOCITY_KEEPING = 0,
+  FOLLOWING,
+  CHANGE_LANE_LEFT,
+  CHANGE_LANE_RIGHT,
+  NUM_OF_STATES
+};
+```
+
+I check the surrounding vehicle states (namely the states of front car on the same lane, front/rear cars on the left/right lane) to determine the next state. When there is no vehicle ahead of me in the same lane, I just keep the speed a bit under the `SPEED_LIMIT`. If there is a leading vehicle within 30 meters, I follow that car. At the mean time, I check if there is enough gap in the adjacent lane, I change lane. After changing lane, I set the mode back to `VELOCITY_KEEPING`.
+
+---
 
 ## Dependencies
 
