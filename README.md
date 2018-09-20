@@ -67,6 +67,8 @@ A really helpful resource for doing this project and creating smooth trajectorie
 ---
 ## Model Documentation
 
+The source code is well documented and should be easy to read. Below I briefly explain some details of the implementation.
+
 ### Map Class
 The given csv file contains only 181 points, the highway map is defined by connecting the points with line segments. Thus the highway map is very coarse which will cause sudden orientation change at those points. Therefore, to get a better map with higher precision, I decided to use the `spline` library provided in the 'Tip' section to connect those points. Four splines are constructed in the [constructor of Map class](https://github.com/xu13/CarND-Path-Planning-Project/blob/d6458b1046bf0d47be8f0ad95234f1d682d44769/src/map.cpp#L3). To get the x/y coordinates from the Frenet coordinates, I can simply do
 
@@ -129,6 +131,18 @@ enum State {
 ```
 
 I check the surrounding vehicle states (namely the states of front car on the same lane, front/rear cars on the left/right lane) to determine the next state. When there is no vehicle ahead of me in the same lane, I just keep the speed a bit under the `SPEED_LIMIT`. If there is a leading vehicle within 30 meters, I follow that car. At the mean time, I check if there is enough gap in the adjacent lane, I change lane. After changing lane, I set the mode back to `VELOCITY_KEEPING`.
+
+### Future Improvement
+
+The implemented state machine and trajectory generation are relatively simple. The following items can be considered for further improvement:
+
+- Planning for low speed trajectories. When the speed of the vehicle is low, the longitudinal and lateral motion cannot be planned individually anymore, neglecting the non-holonomic property. Thus, as suggested in Werling et al., we can consider d as a function of s.
+
+- Multiple trajectories can be generated based on slightly different s_end, d_end, and T for different cases. A cost function can be defined to select the best one. This would be necessary when the scenario is more complicated.
+
+- The behavior planner can be separated to another process using methods introduced in the class.
+
+- Better prediction model can be used to improve the prediction performance.
 
 ---
 
